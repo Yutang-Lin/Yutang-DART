@@ -34,6 +34,3 @@ for model in "${model_list[@]}"; do
     --fix_floor $fix_floor \
     --save_dir "$save_dir"
 done
-
-echo "Rollout saved to $save_dir, visualizing."
-python -m visualize.vis_seq --add_floor 1 --translate_body 1 --seq_path "$save_dir/*.pkl"

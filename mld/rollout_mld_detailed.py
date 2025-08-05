@@ -43,7 +43,7 @@ class RolloutArgs:
     torch_deterministic: bool = True
     device: str = "cuda"
 
-    save_dir = None
+    save_dir: str = None
     dataset: str = 'babel'
 
     denoiser_checkpoint: str = ''
@@ -176,19 +176,20 @@ def rollout(text_prompt, denoiser_args, denoiser_model, vae_args, vae_model, dif
     primitive_utility = dataset.primitive_utility
     print('body_type:', primitive_utility.body_type)
 
-    out_path = rollout_args.save_dir
-    filename = f'guidance{rollout_args.guidance_param}_seed{rollout_args.seed}'
-    if text_prompt != '':
-        filename = text_prompt[:40].replace(' ', '_').replace('.', '') + '_' + filename
-    if rollout_args.respacing != '':
-        filename = f'{rollout_args.respacing}_{filename}'
-    if rollout_args.zero_noise:
-        filename = f'zero_noise_{filename}'
-    if rollout_args.use_predicted_joints:
-        filename = f'use_pred_joints_{filename}'
-    if rollout_args.fix_floor:
-        filename = f'fixfloor_{filename}'
-    out_path = out_path / filename
+    out_path = Path(rollout_args.save_dir)
+    # NOTE: no need to specify filename, because we will save all rollouts in the same directory
+    # filename = f'guidance{rollout_args.guidance_param}_seed{rollout_args.seed}'
+    # if text_prompt != '':
+    #     filename = text_prompt[:40].replace(' ', '_').replace('.', '') + '_' + filename
+    # if rollout_args.respacing != '':
+    #     filename = f'{rollout_args.respacing}_{filename}'
+    # if rollout_args.zero_noise:
+    #     filename = f'zero_noise_{filename}'
+    # if rollout_args.use_predicted_joints:
+    #     filename = f'use_pred_joints_{filename}'
+    # if rollout_args.fix_floor:
+    #     filename = f'fixfloor_{filename}'
+    # out_path = out_path / filename
     out_path.mkdir(parents=True, exist_ok=True)
 
     batch = dataset.get_batch(batch_size=rollout_args.batch_size)
@@ -216,6 +217,7 @@ def rollout(text_prompt, denoiser_args, denoiser_model, vae_args, vae_model, dif
         init_floor_height = joints[:, 0, :, 2].amin(dim=-1)  # [B]
         transf_transl[:, :, 2] = -init_floor_height.unsqueeze(-1)
 
+    segment_length = []
     for segment_id in tqdm(range(num_rollout)):
         text_embedding = all_text_embedding[segment_id].expand(batch_size, -1)  # [B, 512]
         guidance_param = torch.ones(batch_size, *denoiser_args.model_args.noise_shape).to(device=device) * rollout_args.guidance_param
@@ -240,6 +242,7 @@ def rollout(text_prompt, denoiser_args, denoiser_model, vae_args, vae_model, dif
         latent_pred = x_start_pred.permute(1, 0, 2)  # [T=1, B, D]
         future_motion_pred = vae_model.decode(latent_pred, history_motion, nfuture=future_length,
                                                    scale_latent=denoiser_args.rescale_latent)  # [B, F, D], normalized
+        segment_length.append(future_motion_pred.shape[1])
 
         future_frames = dataset.denormalize(future_motion_pred)
         all_frames = torch.cat([dataset.denormalize(history_motion), future_frames], dim=1)
@@ -303,11 +306,15 @@ def rollout(text_prompt, denoiser_args, denoiser_model, vae_args, vae_model, dif
     for idx in range(rollout_args.batch_size):
         sequence = {
             'texts': texts,
+            'segment_length': segment_length,
+            "fps": dataset.target_fps,
             'gender': motion_sequences['gender'],
             'betas': motion_sequences['betas'][idx],
             'transl': motion_sequences['transl'][idx],
             'global_orient': motion_sequences['global_orient'][idx],
+            'global_orient_aa': transforms.matrix_to_axis_angle(motion_sequences['global_orient'][idx]),
             'body_pose': motion_sequences['body_pose'][idx],
+            'body_pose_aa': transforms.matrix_to_axis_angle(motion_sequences['body_pose'][idx]),
             'joints': motion_sequences['joints'][idx],
             'history_length': history_length,
             'future_length': future_length,
@@ -349,9 +356,10 @@ if __name__ == '__main__':
 
     denoiser_args, denoiser_model, vae_args, vae_model = load_mld(rollout_args.denoiser_checkpoint, device)
     denoiser_checkpoint = Path(rollout_args.denoiser_checkpoint)
-    save_dir = denoiser_checkpoint.parent / denoiser_checkpoint.name.split('.')[0] / 'rollout'
-    save_dir.mkdir(parents=True, exist_ok=True)
-    rollout_args.save_dir = save_dir
+    # NOTE: we dont override the save_dir, because we will save all rollouts in the same directory
+    # save_dir = denoiser_checkpoint.parent / denoiser_checkpoint.name.split('.')[0] / 'rollout'
+    # save_dir.mkdir(parents=True, exist_ok=True)
+    # rollout_args.save_dir = save_dir
 
     diffusion_args = denoiser_args.diffusion_args
     diffusion_args.respacing = rollout_args.respacing

@@ -84,6 +84,7 @@ def get_body_by_batch(primitive_data, body_model, batch_size=256):
         for key in smplx_input:
             if torch.is_tensor(smplx_input[key]):
                 smplx_params[key] = smplx_input[key][last_frame:cur_frame, :]
+        # smplx_params['betas'] = torch.tensor([-2.529224395751953, -1.2831432819366455, -6.73276424407959, -11.103961944580078, -6.640168190002441, 5.344294548034668, 13.927803993225098, -23.748769760131836, -5.294166564941406, 5.212164878845215]).unsqueeze(0).to(device).repeat(cur_frame - last_frame, 1)
         smplx_output = body_model(**smplx_params)
         vertices += [smplx_output.vertices]
         joints += [smplx_output.joints]
